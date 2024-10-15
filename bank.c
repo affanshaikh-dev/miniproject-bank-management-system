@@ -24,6 +24,8 @@ void viewAccount();
 void deposit();
 void withdraw();
 void transfer();
+void transferToRecipient(int toAccNum, float amount, Account *fromAcc);
+void transferFromSender(float amount, Account *fromAcc);
 void viewTransactions();
 void logTransaction(int accountNumber, const char *type, float amount);
 
@@ -38,23 +40,23 @@ int main() {
 void menu() {
     int choice;
     do {
-        printf("\n--- Welcome to Boyz Bank ---\n");
+        printf("\n--- Welcome to *_* Boyz Bank ---\n");
         printf("1. Create Account\n2. View Account\n3. Deposit\n4. Withdraw\n");
         printf("5. Transfer\n6. View Transactions\n7. Exit\n");
         printf("Enter choice: ");
         scanf("%d", &choice);
 
-        switch(choice) {
+        switch (choice) {
             case 1: createAccount(); break;
             case 2: viewAccount(); break;
             case 3: deposit(); break;
             case 4: withdraw(); break;
             case 5: transfer(); break;
             case 6: viewTransactions(); break;
-            case 7: printf("Thanks For Use Our Bank\nExiting...\n"); break;
+            case 7: printf("Thanks for using our bank\nExiting...\n"); break;
             default: printf("Invalid choice.\n");
         }
-    } while(choice != 7);
+    } while (choice != 7);
 }
 
 // Function to count the number of accounts in the file
@@ -71,6 +73,7 @@ int countAccounts() {
 void createAccount() {
     Account acc;
 
+    // Check if maximum account limit is reached
     if (countAccounts() >= MAX_ACCOUNTS) {
         printf("Maximum account limit reached.\n");
         return;
@@ -82,28 +85,37 @@ void createAccount() {
         return;
     }
 
-    // Generate account number based on the number of existing accounts
+    // Generate a unique account number based on existing accounts
     int accountCount = countAccounts();
-    acc.accountNumber = 1000 + accountCount;  // Example: starting from 1000
+    acc.accountNumber = 1000 + accountCount;  // Example: start account numbers from 1000
 
     // Collect account details from the user
     printf("Account number (auto-generated): %d\n", acc.accountNumber);
     
     printf("Enter full name: ");
-    getchar();  // Clear the newline left by the previous input
+    getchar();  // Clear newline from previous input
     fgets(acc.name, MAX_NAME, stdin);
     acc.name[strcspn(acc.name, "\n")] = '\0';  // Remove trailing newline character
 
     printf("Enter password: ");
     scanf("%s", acc.password);
 
-    printf("Enter initial balance: ");
-    scanf("%f", &acc.balance);
+    // Ensure initial balance is a positive number
+    do {
+        printf("Enter initial balance: ");
+        scanf("%f", &acc.balance);
+        if (acc.balance < 0) {
+            printf("Balance cannot be negative. Please enter a valid amount.\n");
+        }
+    } while (acc.balance < 0);
 
+    // Write account details to the file
     fwrite(&acc, sizeof(Account), 1, file);
     fclose(file);
-    printf("Account created successfully.\n");
+    
+    printf("Account created successfuly.\n");
 
+    // Log the creation transaction (optional for future development)
     logTransaction(acc.accountNumber, "Account Created", acc.balance);
 }
 
@@ -126,7 +138,7 @@ Account* login() {
     scanf("%s", pass);
 
     // Search for the account in the file
-    while(fread(&acc, sizeof(Account), 1, file)) {
+    while (fread(&acc, sizeof(Account), 1, file)) {
         if (acc.accountNumber == accNum && strcmp(acc.password, pass) == 0) {
             fclose(file);
             return &acc;
@@ -204,47 +216,56 @@ void transfer() {
 
     int toAccNum;
     float amount;
-    Account toAcc;
+
+    printf("Enter destination account number: ");
+    scanf("%d", &toAccNum);
+    printf("Enter transfer amount: ");
+    scanf("%f", &amount);
+
+    transferFromSender(amount, fromAcc);  // Handle sender's side of the transfer
+    transferToRecipient(toAccNum, amount, fromAcc);  // Handle recipient's side
+}
+
+// Function to handle transfer from the sender's account
+void transferFromSender(float amount, Account *fromAcc) {
+    if (fromAcc->balance >= amount) {
+        FILE *file = fopen(FILENAME, "r+b");
+        if (!file) {
+            printf("Error opening file.\n");
+            return;
+        }
+
+        fromAcc->balance -= amount;
+        fseek(file, -sizeof(Account), SEEK_CUR);
+        fwrite(fromAcc, sizeof(Account), 1, file);
+        fclose(file);
+
+        logTransaction(fromAcc->accountNumber, "Transfer Out", amount);
+        printf("Transfer from sender successful.\n");
+    } else {
+        printf("Insufficient funds in sender's account.\n");
+    }
+}
+
+// Function to handle transfer to the recipient's account
+void transferToRecipient(int toAccNum, float amount, Account *fromAcc) {
     FILE *file = fopen(FILENAME, "r+b");
     if (!file) {
         printf("Error opening file.\n");
         return;
     }
 
-    // Get destination account and transfer amount
-    printf("Enter destination account number: ");
-    scanf("%d", &toAccNum);
-    printf("Enter transfer amount: ");
-    scanf("%f", &amount);
-
-    // Search for the destination account
+    Account toAcc;
     while (fread(&toAcc, sizeof(Account), 1, file)) {
         if (toAcc.accountNumber == toAccNum) {
-            if (fromAcc->balance >= amount) {
-                fromAcc->balance -= amount;
-                toAcc.balance += amount;
+            toAcc.balance += amount;
 
-                // Update both accounts in the file
-                fseek(file, -sizeof(Account), SEEK_CUR);
-                fwrite(&toAcc, sizeof(Account), 1, file);
-
-                // Reposition file pointer to update fromAcc
-                fseek(file, 0, SEEK_SET);
-                while (fread(&toAcc, sizeof(Account), 1, file)) {
-                    if (fromAcc->accountNumber == toAcc.accountNumber) {
-                        fseek(file, -sizeof(Account), SEEK_CUR);
-                        fwrite(fromAcc, sizeof(Account), 1, file);
-                        fclose(file);
-                        printf("Transfer successful.\n");
-                        logTransaction(fromAcc->accountNumber, "Transfer Out", amount);
-                        logTransaction(toAcc.accountNumber, "Transfer In", amount);
-                        return;
-                    }
-                }
-            } else {
-                printf("Insufficient funds.\n");
-            }
+            fseek(file, -sizeof(Account), SEEK_CUR);
+            fwrite(&toAcc, sizeof(Account), 1, file);
             fclose(file);
+
+            logTransaction(toAcc.accountNumber, "Transfer In", amount);
+            printf("Transfer to recipient successful.\n");
             return;
         }
     }
@@ -287,8 +308,8 @@ void logTransaction(int accountNumber, const char *type, float amount) {
     FILE *file = fopen("transactions.log", "a");
     if (file) {
         time_t now = time(NULL);
-        fprintf(file, "[%s] Account: %d, Type: %s, Amount: %.2f\n", 
-                ctime(&now), accountNumber, type, amount);
+        fprintf(file, "Account: %d | Type: %s | Amount: %.2f | Date: %s", 
+                accountNumber, type, amount, ctime(&now));
         fclose(file);
     }
 }
